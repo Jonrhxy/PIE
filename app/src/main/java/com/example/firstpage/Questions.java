@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentReference;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.auth.FirebaseUser;
 
 public class Questions extends AppCompatActivity {
 
@@ -42,22 +43,10 @@ public class Questions extends AppCompatActivity {
         mAuth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
-        // Check if the user has already completed the questions
-        SharedPreferences sharedPreferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        boolean isQuestionsCompleted = sharedPreferences.getBoolean(PREF_IS_QUESTIONS_COMPLETED, false);
-
-        // If questions are already completed, redirect to homepage
-        if (isQuestionsCompleted) {
-            Intent intent = new Intent(Questions.this, HomeFragment.class);
-            startActivity(intent);
-            finish();
-            return;
-        }
-
         // Get the current user's username (you should have stored this when they registered)
         String username = mAuth.getCurrentUser().getDisplayName(); // Username is stored in FirebaseUser displayName
 
-// Fetch the first name from Firestore using the username as document ID
+        // Fetch the first name from Firestore using the username as document ID
         DocumentReference userDocRef = db.collection("users").document(username); // Use username as the document ID
         userDocRef.get()
                 .addOnCompleteListener(task -> {
@@ -74,11 +63,37 @@ public class Questions extends AppCompatActivity {
                     }
                 });
 
+        // Check if the user has already completed the questions in Firestore
+        checkIfQuestionsCompleted();
+
         // Set up a listener for the calculate button
         StartButton.setOnClickListener(v -> performCalculation());
     }
 
-    // After the user completes the questions, mark them as completed
+    // Check if the user has completed the questions from Firestore
+    private void checkIfQuestionsCompleted() {
+        FirebaseUser currentUser = mAuth.getCurrentUser();
+        if (currentUser != null) {
+            String username = currentUser.getDisplayName();
+
+            // Retrieve completion status from Firestore
+            DocumentReference userDocRef = db.collection("users").document(username);
+            userDocRef.get()
+                    .addOnCompleteListener(task -> {
+                        if (task.isSuccessful()) {
+                            Boolean isQuestionsCompleted = task.getResult().getBoolean("isQuestionsCompleted");
+                            if (isQuestionsCompleted != null && isQuestionsCompleted) {
+                                // Redirect to homepage if questions are completed
+                                Intent intent = new Intent(Questions.this, HomeFragment.class);
+                                startActivity(intent);
+                                finish();
+                            }
+                        }
+                    });
+        }
+    }
+
+    // After the user completes the questions, mark them as completed in Firestore
     private void performCalculation() {
         // Save the flag in SharedPreferences to indicate questions are completed
         SharedPreferences sharedPreferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
@@ -86,9 +101,19 @@ public class Questions extends AppCompatActivity {
         editor.putBoolean(PREF_IS_QUESTIONS_COMPLETED, true);
         editor.apply();
 
-        // Redirect to the Homepage activity
-        Intent intent = new Intent(Questions.this, Question1.class);
-        startActivity(intent);
-        finish();
+        // Mark as completed in Firestore
+        FirebaseUser currentUser = mAuth.getCurrentUser();
+        if (currentUser != null) {
+            String username = currentUser.getDisplayName();
+            db.collection("users").document(username)
+                    .update("isQuestionsCompleted", true)
+                    .addOnSuccessListener(aVoid -> {
+                        // Redirect to the Homepage activity
+                        Intent intent = new Intent(Questions.this, Question2.class);
+                        startActivity(intent);
+                        finish();
+                    })
+                    .addOnFailureListener(e -> Toast.makeText(Questions.this, "Failed to update completion status", Toast.LENGTH_SHORT).show());
+        }
     }
 }
